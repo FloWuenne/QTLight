@@ -11,6 +11,18 @@ def main(pattern, column, outfile):
     all_files = pd.DataFrame(glob.glob("*"+pattern),columns=['col1'])
     all_files = all_files[~all_files['col1'].str.contains('.index')]
     all_files = list(all_files['col1'])
+    if not all_files:
+        saige_header = [
+            column, 'CHR', 'POS', 'MarkerID', 'Allele1', 'Allele2', 'AC_Allele2',
+            'AF_Allele2', 'MissingRate', 'BETA', 'SE', 'Tstat', 'var', 'p.value',
+            'p.value.NA', 'Is.SPA',
+        ]
+        pd.DataFrame(columns=saige_header).to_csv(outfile, sep='\t', index=False)
+        pd.DataFrame(columns=['gene', 'lambda', 'cell_type']).to_csv(
+            'cell_lambdas.tsv', index=False, sep='\t'
+        )
+        print('No step-2 result files matched; wrote header-only outputs')
+        return
     # Initialize the output file with the header from the first file
     first_file = all_files[0]
     pattern_pre = pattern.split('*')

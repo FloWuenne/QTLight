@@ -6,7 +6,12 @@ import argparse
 
 def main(pattern, column, outfile):
     pattern_pre = pattern.split('*')
-    all_files = glob.glob(f"*{pattern}")
+    all_files = [f for f in glob.glob(f"*{pattern}") if '.index' not in f]
+
+    if not all_files:
+        pd.DataFrame(columns=[column, 'qvalues']).to_csv(outfile, sep='\t', index=False)
+        print('No files matched; wrote header-only output')
+        return
     
     combo = pd.DataFrame()
     

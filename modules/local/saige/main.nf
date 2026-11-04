@@ -259,6 +259,8 @@ process SAIGE_S2_CIS {
 
         ${base_run}
 
+        : > genes_list2.tsv
+
         run_step2_tests_qtl() {
             { 
                 warning_output_file=\$(mktemp)
@@ -347,7 +349,7 @@ process SAIGE_QVAL_COR {
     output:
         tuple val(name),path(genes_list),path(output),emit:output
         tuple val(name),path(output),path(output_rda),path('output3'),path('for_conditioning.csv'),path(regions),path(plink), emit: for_conditioning optional true
-        tuple val(name),path("output3/*_minimum_q.txt"), emit: q_out
+        tuple val(name),path("output3/*_minimum_q.txt"), emit: q_out optional true
     script:
 
         parts = name.split('___')
@@ -356,7 +358,8 @@ process SAIGE_QVAL_COR {
     """
         
         
-        mkdir -p output3 
+        mkdir -p output3
+        if [ -s "${genes_list}" ]; then
         cat "${genes_list}" | while IFS= read -r gene1 || [ -n "\$gene1" ]
         do
             chr1=\$(echo "\${gene1}" | cut -f2)
@@ -373,6 +376,9 @@ process SAIGE_QVAL_COR {
                 echo \${gene},${output_rda}/\${chr1}___nindep_100_ncell_100_lambda_2_tauIntraSample_0.5_\${gene}.rda,${output_rda}/\${chr1}___nindep_100_ncell_100_lambda_2_tauIntraSample_0.5_\${gene}.varianceRatio.txt >> for_conditioning.csv
             fi            
         done
+        else
+            echo "No genes with step 2 variant results in this chunk; skipping q-value correction"
+        fi
     """
 }
 
@@ -392,7 +398,7 @@ process SAIGE_S3 {
     input:
         tuple val(name),path(genes_list),path(output)
     output:
-        tuple val(name),path("output_2/*_cis_genePval"), emit: q_out_2
+        tuple val(name),path("output_2/*_cis_genePval"), emit: q_out_2 optional true
     // Define the Bash script to run for each array job
     // \${chr1}___nindep_100_ncell_100_lambda_2_tauIntraSample_0.5_gene_1_cis_gene_1
     script:
@@ -401,7 +407,8 @@ process SAIGE_S3 {
     chr = parts[-1]
 
     """
-        mkdir output_2
+        mkdir -p output_2
+        if [ -s "${genes_list}" ]; then
         cat "${genes_list}" | while IFS= read -r gene1 || [ -n "\$gene1" ]
         do
             chr1=\$(echo "\${gene1}" | cut -f2)
@@ -412,6 +419,9 @@ process SAIGE_S3 {
             --geneName=\${gene}       \
             --genePval_outputFile=output_2/nindep_100_ncell_100_lambda_chr\${chr1}_tauIntraSample_0.5_\${gene}_cis_genePval
         done
+        else
+            echo "No genes with step 2 variant results; skipping SAIGE step 3"
+        fi
     """
 }
 
@@ -440,8 +450,13 @@ process AGGREGATE_ACAT_RESULTS{
         chr = parts[-1]
         exp = parts[-2] 
         """
-            head -n 1 \$(find . -name "*_cis_genePval" | head -n 1)  >> ACAT_all.tsv
-            find . -name "*_cis_genePval" -print0 | xargs -0 -I {} sh -c 'tail -n +2 "\$1"' sh {} >> ACAT_all.tsv
+            if find . -name '*_cis_genePval' -print -quit | grep -q .; then
+                head -n 1 \$(find . -name "*_cis_genePval" | head -n 1) >> ACAT_all.tsv
+                find . -name "*_cis_genePval" -print0 | xargs -0 -I {} sh -c 'tail -n +2 "\$1"' sh {} >> ACAT_all.tsv
+            else
+                echo "No step 3 gene p-value files; writing header-only ACAT_all.tsv"
+                printf 'gene\\tACAT_p\\ttop_MarkerID\\ttop_pval\\n' > ACAT_all.tsv
+            fi
         """
 }
 
@@ -472,8 +487,13 @@ process AGGREGATE_QTL_RESULTS{
         chr = parts[-1]
         exp = parts[-2] 
         """
-            prepend_gene.py --pattern 'cis_*_minimum_q.txt' --column 'gene' --outfile 'minimum_q_all_genes.tsv'
-            qvalue_correction.py -f minimum_q_all_genes.tsv -c "18" -n "qvalues_across_genes" -w "FALSE"
+            if find . -name 'cis_*_minimum_q.txt' -print -quit | grep -q .; then
+                prepend_gene.py --pattern 'cis_*_minimum_q.txt' --column 'gene' --outfile 'minimum_q_all_genes.tsv'
+                qvalue_correction.py -f minimum_q_all_genes.tsv -c "18" -n "qvalues_across_genes" -w "FALSE"
+            else
+                echo "No per-gene minimum q files; writing header-only minimum_q_all_genes.tsv"
+                printf 'gene\\tqvalues_across_genes\\n' > minimum_q_all_genes.tsv
+            fi
         """
 }
 
@@ -504,9 +524,15 @@ process AGGREGATE_QTL_ALLVARS{
         exp = parts[-3]
 
         """
-            prepend_gene_large.py --pattern 'cis_*' --column 'gene' --outfile '${chr}__${exp}__all_vars_genes.tsv'
-            gzip ${chr}__${exp}__all_vars_genes.tsv
-            mv cell_lambdas.tsv ${chr}__${exp}__gene_lambdas.tsv || echo 'not existant'
+            if find . -name 'cis_*' ! -name '*.index' -print -quit | grep -q .; then
+                prepend_gene_large.py --pattern 'cis_*' --column 'gene' --outfile '${chr}__${exp}__all_vars_genes.tsv'
+                gzip ${chr}__${exp}__all_vars_genes.tsv
+                mv cell_lambdas.tsv ${chr}__${exp}__gene_lambdas.tsv || echo 'not existant'
+            else
+                echo "No cis step-2 association files; writing empty nominal outputs"
+                printf 'gene\\tCHR\\tPOS\\tMarkerID\\tAllele1\\tAllele2\\tAC_Allele2\\tAF_Allele2\\tMissingRate\\tBETA\\tSE\\tTstat\\tvar\\tp.value\\tp.value.NA\\tIs.SPA\\n' | gzip > ${chr}__${exp}__all_vars_genes.tsv.gz
+                printf 'gene\\tlambda\\tcell_type\\n' > ${chr}__${exp}__gene_lambdas.tsv
+            fi
         """
 }
 
