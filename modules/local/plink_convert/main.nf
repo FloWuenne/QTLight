@@ -179,7 +179,7 @@ process BGEN_CONVERT{
 
             echo "Detected base name: \$base_name"
 
-            plink2 --pfile "\$plink_dir/\$base_name" --export bgen-1.2 ref-first --out genotypes_bgen
+            plink2 --pfile "\$plink_dir/\$base_name" --export bgen-1.2 bits=8 ref-first --out genotypes_bgen
             bgenix -g genotypes_bgen.bgen -index
         """    
 }
