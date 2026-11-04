@@ -115,7 +115,7 @@ process SAIGE_S1 {
         each path(sparseGRM)
         each path(sparseGRM_samples)
     output:
-        tuple val(name),path(genes_list),path("output"),emit:output
+        tuple val(name),path("${genes_list}.s1_ok"),path("output"),emit:output
         path("*genes_droped_from_s1_due_to_error.tsv"), emit: dropped optional true
 
     // Define the Bash script to run for each array job
@@ -141,6 +141,9 @@ process SAIGE_S1 {
         # Execute with the bash executable in an array (one job per gene within level)
         #// Genome wide for this we send a list of genes in chunks 
         mkdir -p output
+        # Never edit the staged input in place (it is a symlink; `sed -i` on it is unsafe on Fusion/object storage).
+        # Successfully fitted genes are written to a new task-local file instead.
+        : > "${genes_list}.s1_ok"
         cat "${genes_list}" | while IFS= read -r i || [ -n "\$i" ]
         do
            {  # try
@@ -177,10 +180,9 @@ process SAIGE_S1 {
                 --minMAFforGRM=${params.SAIGE.minMAFforGRM} \
                 --maxMissingRateforGRM=${params.SAIGE.maxMissingRateforGRM} \
                 --useGRMtoFitNULL=${params.SAIGE.useGRMtoFitNULL} \
-                ${params.SAIGE.step1_extra_flags}
+                ${params.SAIGE.step1_extra_flags} && echo "\$i" >> "${genes_list}.s1_ok"
             } || {
                 # catch
-                sed -i '/\$i/d' ${genes_list}
                 echo \$i >> \${i}_genes_droped_from_s1_due_to_error.tsv
             }
         done
@@ -188,7 +190,7 @@ process SAIGE_S1 {
 
 
 
-        cat "${genes_list}" | while IFS= read -r i || [ -n "\$i" ]
+        cat "${genes_list}.s1_ok" | while IFS= read -r i || [ -n "\$i" ]
         do
             echo \$i >> ./output/gene_string.tsv
             step1prefix=./output/nindep_100_ncell_100_lambda_2_tauIntraSample_0.5_\$i
@@ -682,7 +684,12 @@ process DETERMINE_TSS_AND_TEST_REGIONS {
     script:
     """
         echo 'Lets prepeare the regions file'
-        prepeare_Saige_regions_for_cis.py --annotation_file ${annotation_file} --genes ${genes_list} --gtf_type ${params.gtf_type} --window ${params.windowSize} --gtf_gene_identifier ${params.gtf_gene_identifier}
+        if [ -s "${genes_list}" ]; then
+            prepeare_Saige_regions_for_cis.py --annotation_file ${annotation_file} --genes ${genes_list} --gtf_type ${params.gtf_type} --window ${params.windowSize} --gtf_gene_identifier ${params.gtf_gene_identifier}
+        else
+            echo "No genes survived SAIGE step 1 in this chunk; emitting an empty regions file"
+            : > gene_regions_to_test.tsv
+        fi
     """
 }
 

@@ -350,8 +350,12 @@ def main():
             covariates_string = ','.join(geno_pcs.columns.values)+covariates_string
             sample_covariates = ','.join(geno_pcs.columns.values)
             
+            # Only real phenotype (gene) columns are test features; the genotype-ID column, genotype PCs and
+            # cell-level covariates appended above must not end up in the gene list (they all land in the last chunk).
+            non_gene_cols = set(geno_pcs.columns) | {genotype_id} | set(c for c in covariates_string.split(',') if c)
+            test_genes = [c for c in counts.columns if c not in non_gene_cols]
             with open(f"{savedir}/test_genes.txt", 'w') as file:
-                file.write("\n".join(counts.columns))
+                file.write("\n".join(test_genes) + "\n")
 
             print("Saving")
             with open(f"{savedir}/covariates.txt", 'w') as file:

@@ -3,6 +3,7 @@ __author__ = 'Matiss Ozols'
 __date__ = '2021-11-25'
 __version__ = '0.0.1'
 
+import os
 import pandas as pd
 import argparse
 import math
@@ -70,6 +71,11 @@ def main():
     expression_file = options.genes
     window = int(options.window)
     gtf_type = options.gtf_type
+
+    if os.path.getsize(expression_file) == 0:
+        open("gene_regions_to_test.tsv", "w").close()
+        print('No genes in list; wrote empty regions file')
+        return
 
     Expression_Data = pd.read_csv(expression_file,sep="\t",header=None)
     if(len(Expression_Data[0].iloc[0].split('.'))>1):
