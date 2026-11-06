@@ -154,9 +154,9 @@ process BGEN_CONVERT{
 
     script:
         if ("${file__vcf}".contains(".vcf")) {
-            ext1 = "mkdir -p temp && plink2 --vcf ${file__vcf} --make-pgen --out temp/temp"
+            ext1 = "mkdir -p temp && plink2 --vcf ${file__vcf} 'dosage=DS' --make-pgen --out temp/temp"
         } else if ("${file__vcf}".contains(".bcf")){
-            ext1 = "mkdir -p temp && plink2 --bcf ${file__vcf} --make-pgen --out temp/temp"
+            ext1 = "mkdir -p temp && plink2 --bcf ${file__vcf} 'dosage=DS' --make-pgen --out temp/temp"
         }else{
             ext1 = "ln -s ${file__vcf} temp"
         }
@@ -179,7 +179,10 @@ process BGEN_CONVERT{
 
             echo "Detected base name: \$base_name"
 
-            plink2 --pfile "\$plink_dir/\$base_name" --export bgen-1.2 bits=8 ref-first --out genotypes_bgen
+            # SAIGE-QTL step 2 reads only unphased 8-bit BGEN ("has Phased = 2 (not 0)" otherwise),
+            # so drop phase before exporting. Dosages (DS) are kept.
+            plink2 --pfile "\$plink_dir/\$base_name" --make-pgen erase-phase --out unphased
+            plink2 --pfile unphased --export bgen-1.2 bits=8 ref-first --out genotypes_bgen
             bgenix -g genotypes_bgen.bgen -index
         """    
 }
